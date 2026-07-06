@@ -92,7 +92,7 @@ const APP_CONFIG = {
   // Render'da yayına aldığınız backend'in URL'sini yazın.
   // Örn: "https="//sizin-app.onrender.com"
   // Lokalde test için: "http://localhost:3001"
-  serverUrl: 'http://localhost:3001',
+  serverUrl: 'https://bukalp-senden-api.onrender.com',
 
   // -------------------------------------------
   // 9. VERİ DOSYALARI (değiştirmeyin)
