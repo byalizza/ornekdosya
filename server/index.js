@@ -101,6 +101,36 @@ app.delete('/api/photos/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ========== KALBIM API ==========
+let kalbimData = loadData('kalbim');
+
+app.get('/api/kalbim', (req, res) => {
+  res.json(kalbimData);
+});
+
+app.put('/api/kalbim', (req, res) => {
+  const data = req.body;
+  if (!Array.isArray(data)) return res.status(400).json({ error: 'Invalid data' });
+  kalbimData = data;
+  saveData('kalbim', kalbimData);
+  res.json({ ok: true, count: kalbimData.length });
+});
+
+// ========== MEMORIES API ==========
+let memoriesData = loadData('memories');
+
+app.get('/api/memories', (req, res) => {
+  res.json(memoriesData);
+});
+
+app.put('/api/memories', (req, res) => {
+  const data = req.body;
+  if (!Array.isArray(data)) return res.status(400).json({ error: 'Invalid data' });
+  memoriesData = data;
+  saveData('memories', memoriesData);
+  res.json({ ok: true, count: memoriesData.length });
+});
+
 // ========== CLEANUP EXPIRED PHOTOS ==========
 setInterval(() => {
   const before = photos.length;

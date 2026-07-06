@@ -43,13 +43,30 @@ var AnilarWidget = {
   },
 
   loadData() {
+    const serverUrl = APP_CONFIG.serverUrl || 'http://localhost:3001';
+    fetch(serverUrl + '/api/memories')
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(data => {
+        if (data.length > 0) {
+          this.memories = data.map((m, i) => ({ ...m, _key: 'local_' + i }));
+          this.saveLocal();
+          this.renderGrid();
+        } else {
+          this.loadLocalFile();
+        }
+      })
+      .catch(() => this.loadLocalFile());
+  },
+
+  loadLocalFile() {
     fetch(APP_CONFIG.localDataPaths.memories)
       .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(data => {
-        const fromJson = data.map((m, i) => ({ ...m, _key: 'local_' + i }));
-        this.memories = [...fromJson, ...this.memories];
-        this.saveLocal();
-        this.renderGrid();
+        if (data.length > 0) {
+          this.memories = data.map((m, i) => ({ ...m, _key: 'local_' + i }));
+          this.saveLocal();
+          this.renderGrid();
+        }
       })
       .catch(e => console.warn('Anilar yukleme hatasi:', e));
   },
@@ -64,6 +81,11 @@ var AnilarWidget = {
 
   saveLocal() {
     try { localStorage.setItem('memories_data', JSON.stringify(this.memories)); } catch (e) {}
+    const serverUrl = APP_CONFIG.serverUrl || 'http://localhost:3001';
+    fetch(serverUrl + '/api/memories', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(this.memories)
+    }).catch(() => {});
   },
 
   renderGrid() {
