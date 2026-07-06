@@ -16,7 +16,6 @@ const ASSETS = [
   BASE_PATH + '/css/style.css',
   BASE_PATH + '/js/config.js',
   BASE_PATH + '/js/app.js',
-  BASE_PATH + '/js/firebase-init.js',
   BASE_PATH + '/js/blockblast.js',
   BASE_PATH + '/js/widgets/login.js',
   BASE_PATH + '/js/widgets/counter.js',

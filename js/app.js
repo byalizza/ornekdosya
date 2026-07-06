@@ -6,8 +6,6 @@ const App = {
   isReady: false,
 
   async init() {
-    initFirebase();
-
     // Splash'a tıklayınca tam ekran + login'e geç
     const splash = document.getElementById('splashScreen');
     const splashInner = document.getElementById('splashInner');

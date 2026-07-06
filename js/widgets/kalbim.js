@@ -34,7 +34,7 @@ var KalbimWidget = {
     this.startCounter();
     this.setupMusic();
     this.setupEdit();
-    this.setupFirebase();
+    this.loadData();
   },
 
   setupEdit() {
@@ -96,7 +96,6 @@ var KalbimWidget = {
 
           const mem = { title, date, story, image: dataUrl, emoji: '💖', timestamp: Date.now() };
           this.memories.push(mem);
-          this.saveToFirebase(mem);
           this.saveLocal();
           this.startCarousel();
           this.showSlide(this.memories.length - 1);
@@ -118,7 +117,6 @@ var KalbimWidget = {
     m.title = title;
     m.date = date || '';
     m.story = story || '';
-    this.updateFirebase(idx);
     this.saveLocal();
     if (idx === this.slideIdx) this.showSlide(idx);
   },
@@ -127,9 +125,6 @@ var KalbimWidget = {
     const m = this.memories[idx];
     if (!m) return;
     if (!confirm('Bu slaytı silmek istediğine emin misin?')) return;
-    if (m._key && this.dbRef) {
-      this.dbRef.child(m._key).remove().catch(() => {});
-    }
     this.memories.splice(idx, 1);
     this.saveLocal();
     if (this.memories.length === 0) {
@@ -142,36 +137,22 @@ var KalbimWidget = {
     }
   },
 
-  saveToFirebase(mem) {
-    if (!this.dbRef) return;
-    const ref = this.dbRef.push(mem);
-    mem._key = ref.key;
-  },
-
-  updateFirebase(idx) {
-    const m = this.memories[idx];
-    if (!m || !m._key || !this.dbRef) return;
-    this.dbRef.child(m._key).update({ title: m.title, date: m.date, story: m.story }).catch(() => {});
-  },
-
   saveLocal() {
     try { localStorage.setItem('kalbim_data', JSON.stringify(this.memories)); } catch (e) {}
   },
 
   /* --- CAROUSEL --- */
-  setupFirebase() {
+  loadData() {
     fetch(APP_CONFIG.localDataPaths.kalbim)
       .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(data => {
-        const fromJson = data.map((m, i) => ({ ...m, _key: m._firebaseKey || 'local_' + i }));
-        const localOnly = this.memories.filter(m => !m._firebaseKey);
-        this.memories = [...fromJson, ...localOnly];
+        const fromJson = data.map((m, i) => ({ ...m, _key: 'local_' + i }));
+        this.memories = [...fromJson, ...this.memories];
         this.saveLocal();
         this.startCarousel();
       })
       .catch(e => {
         console.warn('Kalbim yukleme hatasi:', e);
-        document.getElementById('carouselTitle').textContent = 'Yüklenemedi: ' + e.message;
       });
   },
 
@@ -351,11 +332,10 @@ var KalbimWidget = {
   esc(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; },
 
   onActivate() {
-    this.setupFirebase();
+    this.loadData();
   },
 
   onDeactivate() {
-    if (this.dbRef) this.dbRef.off();
     if (this.slideTimer) { clearInterval(this.slideTimer); this.slideTimer = null; }
   }
 };

@@ -1,4 +1,5 @@
 var LocketWidget = {
+  socket: null,
   stream: null,
   facingMode: 'environment',
   isCapturing: false,
@@ -10,7 +11,6 @@ var LocketWidget = {
   isShowingQueue: false,
   _startingCamera: false,
   _hasActivated: false,
-  _firebaseReady: false,
 
   _myName() {
     const u = window.currentUser || 'efe';
@@ -41,8 +41,60 @@ var LocketWidget = {
 
     this.setupListeners();
     this.loadLikes();
-    this.setupFirebase();
+    this.loadPhotos();
+    this.connectSocket();
     this.startCleanup();
+  },
+
+  connectSocket() {
+    const serverUrl = APP_CONFIG.serverUrl || 'http://localhost:3001';
+    try {
+      this.socket = io(serverUrl, { transports: ['websocket', 'polling'] });
+
+      this.socket.on('connect', () => {
+        console.log('Locket Socket bağlandı');
+        fetch(serverUrl + '/api/photos')
+          .then(r => r.json())
+          .then(data => {
+            if (data && data.length > 0) {
+              const existingIds = new Set(this.allPhotos.map(p => p.id));
+              const newPhotos = data.filter(p => !existingIds.has(p.id));
+              if (newPhotos.length > 0) {
+                this.allPhotos = [...newPhotos, ...this.allPhotos];
+                this.allPhotos.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+                this.savePhotos();
+                if (this._hasActivated) {
+                  this.buildUnseenQueue();
+                  if (this.unseenPhotos.length > 0 && !this.isShowingQueue) {
+                    this.showFromQueue();
+                  }
+                }
+              }
+            }
+          })
+          .catch(() => {});
+      });
+
+      this.socket.on('new_photo', (photo) => {
+        if (!photo || !photo.id) return;
+        const exists = this.allPhotos.some(p => p.id === photo.id);
+        if (exists) return;
+        this.allPhotos.unshift(photo);
+        this.savePhotos();
+        const myName = this._myName();
+        if (photo.from !== myName) {
+          if (this._hasActivated) {
+            this.buildUnseenQueue();
+            if (this.unseenPhotos.length > 0 && !this.isShowingQueue) {
+              this.showFromQueue();
+            }
+          }
+          showNotification('📸', photo.from + ' yeni bir anlık paylaştı', 'Görmek için Anlık sekmesine git');
+        }
+      });
+    } catch (e) {
+      console.warn('Locket Socket bağlanamadı:', e);
+    }
   },
 
   setupListeners() {
@@ -127,8 +179,6 @@ var LocketWidget = {
     this.isCapturing = false;
   },
 
-  // ========== QUEUE / UNSEEN ==========
-
   onActivate() {
     this._hasActivated = true;
     if (this.allPhotos.length === 0) this.loadPhotos();
@@ -160,8 +210,6 @@ var LocketWidget = {
     const photo = this.unseenPhotos.shift();
     this.showPreview(photo, true);
   },
-
-  // ========== CAPTURE ==========
 
   capture() {
     if (this.isCapturing) return;
@@ -239,10 +287,16 @@ var LocketWidget = {
       this.allPhotos.unshift(photo);
       this.savePhotos();
 
-      const db = getDatabase();
-      if (db) {
-        db.ref(APP_CONFIG.firebasePaths.photos).push(photo).catch(() => {});
+      // Send to server
+      const serverUrl = APP_CONFIG.serverUrl || 'http://localhost:3001';
+      if (this.socket && this.socket.connected) {
+        this.socket.emit('send_photo', photo);
       }
+      fetch(serverUrl + '/api/photos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(photo)
+      }).catch(() => {});
 
       const pid = photo.id || photo.timestamp;
       this.seenIds[pid] = true;
@@ -252,8 +306,6 @@ var LocketWidget = {
     };
     img.src = dataUrl;
   },
-
-  // ========== PREVIEW ==========
 
   showPreview(photo, isFromQueue) {
     this.shutter.style.display = 'none';
@@ -312,8 +364,6 @@ var LocketWidget = {
     this.isShowingQueue = false;
   },
 
-  // ========== LIKE ==========
-
   likeCurrentPhoto() {
     const photoId = this.previewLikeBtn.dataset.photoId;
     if (!photoId) return;
@@ -330,8 +380,6 @@ var LocketWidget = {
     }
     try { localStorage.setItem('locket_likes', JSON.stringify(this.likedPhotos)); } catch (e) {}
   },
-
-  // ========== PERSISTENCE ==========
 
   loadSeen() {
     const u = this._myUser();
@@ -366,53 +414,6 @@ var LocketWidget = {
     return filters[name] || 'none';
   },
 
-  // ========== FIREBASE ==========
-
-  _notifReady: false,
-
-  setupFirebase() {
-    const db = getDatabase();
-    if (!db) return;
-    this._photosRef = db.ref(APP_CONFIG.firebasePaths.photos);
-
-    this._photosRef.on('value', (snapshot) => {
-      const data = snapshot.val();
-      this.allPhotos = [];
-
-      if (data) {
-        Object.values(data).forEach(item => {
-          if (item && item.url && Date.now() < (item.expiresAt || Infinity)) {
-            if (!item.id) item.id = item.timestamp.toString(36);
-            this.allPhotos.push(item);
-          }
-        });
-      }
-
-      this.allPhotos.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-      this.savePhotos();
-      this._notifReady = true;
-
-      if (this._hasActivated) {
-        this.buildUnseenQueue();
-        if (this.unseenPhotos.length > 0 && !this.isShowingQueue) {
-          this.showFromQueue();
-        }
-      }
-    });
-
-    // Bildirimler için child_added
-    const myName = this._myName();
-    this._photosRef.on('child_added', (snapshot) => {
-      if (!this._notifReady) return;
-      const photo = snapshot.val();
-      if (!photo || !photo.from) return;
-      if (photo.from !== myName) {
-        const sender = photo.from === 'Efe' ? 'Efe' : 'Ela';
-        showNotification('📸', sender + ' yeni bir anlık paylaştı', 'Görmek için Anlık sekmesine git');
-      }
-    });
-  },
-
   startCleanup() {
     setInterval(() => {
       const before = this.allPhotos.length;
@@ -422,8 +423,6 @@ var LocketWidget = {
       }
     }, 60000);
   },
-
-  // ========== GALLERY ==========
 
   openGallery() {
     this.galleryGrid.innerHTML = '';
@@ -458,17 +457,12 @@ var LocketWidget = {
   },
 
   deletePhoto(photo) {
-    const db = getDatabase();
     const pid = photo.id || photo.timestamp;
-    if (db) {
-      const query = db.ref(APP_CONFIG.firebasePaths.photos).orderByChild('id').equalTo(pid);
-      query.once('value', snap => {
-        snap.forEach(child => child.ref.remove());
-      });
-    }
     this.allPhotos = this.allPhotos.filter(p => (p.id || p.timestamp) !== pid);
     this.savePhotos();
     this.openGallery();
+    const serverUrl = APP_CONFIG.serverUrl || 'http://localhost:3001';
+    fetch(serverUrl + `/api/photos/${pid}`, { method: 'DELETE' }).catch(() => {});
   },
 
   closeGallery() {
@@ -476,7 +470,6 @@ var LocketWidget = {
   },
 
   onDeactivate() {
-    if (this._photosRef) this._photosRef.off();
     if (this.stream) {
       this.stream.getTracks().forEach(t => t.stop());
       this.stream = null;

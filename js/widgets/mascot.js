@@ -1,19 +1,18 @@
 ﻿var MessageWidget = {
-  dbRef: null,
+  socket: null,
   messages: [],
   initialized: false,
-  _pendingImages: {},
   petMessages: [
-    'Ã‡ok gÃ¼zel kokuyorsun ğŸ’•',
-    'Ã‡ok gÃ¼zel gÃ¶zÃ¼kÃ¼yorsun âœ¨',
-    'SaÃ§larÄ±n Ã§ok gÃ¼zel ğŸŒ¸',
-    'GÃ¼neÅŸ seni kÄ±skanÄ±yor â˜€ï¸',
-    'HayatÄ±mÄ± aydÄ±nlatÄ±yorsun ğŸ’«',
-    'IÅŸÄ±ltÄ±nla dÃ¼nyam gÃ¼zelleÅŸiyor ğŸŒŸ',
-    'Bu kalp senden vazgeÃ§mez fÄ±stÄ±kk ğŸ’–',
-    'Kalbimm ğŸ«€',
-    'Prenses her zaman prensestir ğŸ‘‘',
-    'Prensesimm ğŸŒ·'
+    'Çok güzel kokuyorsun 💕',
+    'Çok güzel gözüküyorsun ✨',
+    'Saçların çok güzel 🌸',
+    'Güneş seni kıskanıyor ☀️',
+    'Hayatımı aydınlatıyorsun 💫',
+    'Işıltınla dünyam güzelleşiyor 🌟',
+    'Bu kalp senden vazgeçmez fıstıkk 💖',
+    'Kalbimm 🫀',
+    'Prenses her zaman prensestir 👑',
+    'Prensesimm 🌷'
   ],
 
   init() {
@@ -34,9 +33,61 @@
     this.navBtn = document.getElementById('navMesaj');
 
     this.setupListeners();
-    this.setupFirebase();
     this.loadLocalMessages();
+    this.connectSocket();
     this.startPetAnimations();
+  },
+
+  connectSocket() {
+    const serverUrl = APP_CONFIG.serverUrl || 'http://localhost:3001';
+    try {
+      this.socket = io(serverUrl, { transports: ['websocket', 'polling'] });
+
+      this.socket.on('connect', () => {
+        console.log('Socket bağlandı');
+        // Load existing messages from server
+        fetch(serverUrl + '/api/messages')
+          .then(r => r.json())
+          .then(data => {
+            if (data && data.length > 0) {
+              // Merge with local, deduplicate
+              const existingIds = new Set(this.messages.map(m => m.id));
+              const newMsgs = data.filter(m => !existingIds.has(m.id));
+              if (newMsgs.length > 0) {
+                this.messages = [...this.messages, ...newMsgs];
+                this.messages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+                this.msgList.innerHTML = '';
+                this.messages.forEach(msg => this.renderMessage(msg));
+                this.scrollToBottom();
+                this.saveToLocal(null, true);
+              }
+            }
+          })
+          .catch(() => {});
+      });
+
+      this.socket.on('new_message', (msg) => {
+        if (!msg || !msg.id) return;
+        const exists = this.messages.some(m => m.id === msg.id);
+        if (exists) return;
+        this.messages.push(msg);
+        this.renderMessage(msg);
+        this.saveToLocal(msg);
+        this.scrollToBottom();
+        const isActive = document.getElementById('petWidget').classList.contains('active');
+        if (!isActive) this.showBadge();
+        if (msg.from !== window.currentUser) {
+          const sender = msg.from === 'efe' ? 'Efe' : 'Ela';
+          showNotification('💬', sender + ' sana mesaj gönderdi', msg.text || 'Fotoğraf');
+        }
+      });
+
+      this.socket.on('disconnect', () => {
+        console.log('Socket bağlantısı koptu');
+      });
+    } catch (e) {
+      console.warn('Socket bağlanamadı:', e);
+    }
   },
 
   setupListeners() {
@@ -45,9 +96,7 @@
       if (e.key === 'Enter') this.sendMessage();
     });
     this.msgInput.addEventListener('focus', () => setTimeout(() => this.scrollToBottom(), 300));
-
     this.msgPhotoBtn.addEventListener('click', () => this.pickPhoto());
-
     this.petEl.addEventListener('click', () => this.petInteraction());
     this.setupPetting();
   },
@@ -59,16 +108,16 @@
     const startPet = () => {
       isPetting = true;
       petCount++;
-      this.petEmoji.textContent = 'ğŸ˜Š';
+      this.petEmoji.textContent = '😊';
       setTimeout(() => {
-        if (!isPetting) this.petEmoji.textContent = 'ğŸ±';
+        if (!isPetting) this.petEmoji.textContent = '🐱';
       }, 600);
     };
 
     const endPet = () => {
       if (!isPetting) return;
       isPetting = false;
-      this.petEmoji.textContent = 'ğŸ±';
+      this.petEmoji.textContent = '🐱';
       if (petCount > 3) {
         const msg = this.petMessages[Math.floor(Math.random() * this.petMessages.length)];
         this.petText.textContent = msg;
@@ -131,14 +180,7 @@
         this.renderMessage(msg);
         this.saveToLocal(msg);
         this.scrollToBottom();
-
-        const db = getDatabase();
-        if (db && this.dbRef) {
-          const newRef = this.dbRef.push(msg);
-          msg._key = newRef.key;
-          const div = this.msgList.querySelector(`[data-msg-id="${msg.id}"]`);
-          if (div) div.dataset.msgKey = msg._key;
-        }
+        this.sendToServer(msg);
       };
       img.src = e.target.result;
     };
@@ -170,75 +212,6 @@
     }, 10000 + Math.random() * 8000);
   },
 
-  setupFirebase() {
-    const db = getDatabase();
-    if (!db) return;
-
-    const path = APP_CONFIG.firebasePaths.messages;
-    this.dbRef = db.ref(path);
-
-    this.dbRef.limitToLast(1).on('child_added', (snapshot) => {
-      try {
-        const key = snapshot.key;
-        const msg = snapshot.val();
-        if (msg && msg.id) {
-          msg._key = key;
-          const exists = this.messages.some(m => m.id === msg.id);
-          if (!exists) {
-            this.messages.push(msg);
-            this.renderMessage(msg);
-            this.saveToLocal(msg);
-          } else {
-            // update _key on existing message
-            const existing = this.messages.find(m => m.id === msg.id);
-            if (existing && !existing._key) {
-              existing._key = key;
-              const div = this.msgList.querySelector(`[data-msg-id="${msg.id}"]`);
-              if (div) div.dataset.msgKey = key;
-            }
-            return;
-          }
-            const isActive = document.getElementById('petWidget').classList.contains('active');
-            if (isActive) {
-              this.scrollToBottom();
-            } else {
-              this.showBadge();
-            }
-            if (this._msgNotifReady && msg.from !== window.currentUser) {
-              const sender = msg.from === 'efe' ? 'Efe' : 'Ela';
-              showNotification('ğŸ’¬', sender + ' sana mesaj gÃ¶nderdi', msg.text || 'FotoÄŸraf');
-            }
-          }
-      } catch (e) { /* ignore */ }
-    }, (err) => { /* permission denied - ignore */ });
-
-    this.dbRef.once('value', (snapshot) => {
-      try {
-        if (!snapshot.val()) return;
-        const loaded = [];
-        snapshot.forEach(child => {
-          const msg = child.val();
-          if (msg && msg.id) {
-            msg._key = child.key;
-            const exists = this.messages.some(m => m.id === msg.id);
-            if (!exists) loaded.push(msg);
-          }
-        });
-
-        if (loaded.length > 0) {
-          loaded.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-          this.messages = [...this.messages, ...loaded];
-          this.msgList.innerHTML = '';
-          this.messages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-          this.messages.forEach(msg => { this.renderMessage(msg); });
-          this.saveToLocal(null, true);
-          this.scrollToBottom();
-        }
-      } catch (e) { /* ignore */ }
-      this._msgNotifReady = true;
-    }, (err) => { /* permission denied - ignore */ });
-  },
-
   loadLocalMessages() {
     try {
       const saved = JSON.parse(localStorage.getItem('chat_messages') || '[]');
@@ -248,7 +221,7 @@
         this.messages.forEach(msg => this.renderMessage(msg));
         this.scrollToBottom();
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) {}
   },
 
   sendMessage() {
@@ -263,19 +236,24 @@
     };
 
     this.msgInput.value = '';
-
     this.messages.push(msg);
     this.renderMessage(msg);
     this.saveToLocal(msg);
     this.scrollToBottom();
+    this.sendToServer(msg);
+  },
 
-    const db = getDatabase();
-    if (db && this.dbRef) {
-      const newRef = this.dbRef.push(msg);
-      msg._key = newRef.key;
-      const div = this.msgList.querySelector(`[data-msg-id="${msg.id}"]`);
-      if (div) div.dataset.msgKey = msg._key;
+  sendToServer(msg) {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('send_message', msg);
     }
+    // Also POST to REST API as fallback
+    const serverUrl = APP_CONFIG.serverUrl || 'http://localhost:3001';
+    fetch(serverUrl + '/api/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(msg)
+    }).catch(() => {});
   },
 
   renderMessage(msg) {
@@ -294,31 +272,22 @@
     inner += `<span class="msg-time">${this.formatTime(msg.timestamp)}</span>`;
     div.innerHTML = inner;
     div.dataset.msgId = msg.id;
-    div.dataset.msgKey = msg._key || '';
 
-    // Long-press for context menu
     let timer = null;
     const start = (e) => {
       timer = setTimeout(() => {
         timer = null;
         const id = div.dataset.msgId;
-        const key = div.dataset.msgKey;
         const m = this.messages.find(x => x.id === id);
-        const title = m?.text ? m.text.substring(0, 30) : (m?.image ? 'ğŸ“· FotoÄŸraf' : 'Mesaj');
+        const title = m?.text ? m.text.substring(0, 30) : (m?.image ? '📷 Fotoğraf' : 'Mesaj');
         const items = [
-          { icon: 'âœï¸', label: 'DÃ¼zenle', onClick: () => this.editMessage(id) }
+          { icon: '✏️', label: 'Düzenle', onClick: () => this.editMessage(id) },
+          { icon: '🗑️', label: 'Sil', danger: true, onClick: () => this.deleteMessage(id) }
         ];
-        if (key) {
-          items.push({ icon: 'ğŸ—‘ï¸', label: 'Sil', danger: true, onClick: () => this.deleteMessage(id) });
-        } else {
-          items.push({ icon: 'ğŸ—‘ï¸', label: 'Sil', danger: true, onClick: () => this.deleteMessage(id) });
-        }
         showContextMenu(title, items);
       }, 500);
     };
-    const stop = () => {
-      if (timer) { clearTimeout(timer); timer = null; }
-    };
+    const stop = () => { if (timer) { clearTimeout(timer); timer = null; } };
     div.addEventListener('mousedown', start);
     div.addEventListener('mouseup', stop);
     div.addEventListener('mouseleave', stop);
@@ -332,37 +301,36 @@
   deleteMessage(msgId) {
     const idx = this.messages.findIndex(m => m.id === msgId);
     if (idx < 0) return;
-    const msg = this.messages[idx];
-    const db = getDatabase();
-    if (db && msg._key && this.dbRef) {
-      this.dbRef.child(msg._key).remove().catch(() => {});
-    }
     this.messages.splice(idx, 1);
     this.saveToLocal(null, true);
     this.msgList.innerHTML = '';
     this.messages.forEach(m => this.renderMessage(m));
+    const serverUrl = APP_CONFIG.serverUrl || 'http://localhost:3001';
+    fetch(serverUrl + `/api/messages/${msgId}`, { method: 'DELETE' }).catch(() => {});
   },
 
   editMessage(msgId) {
     const msg = this.messages.find(m => m.id === msgId);
     if (!msg) return;
-    const newText = prompt('MesajÄ± dÃ¼zenle:', msg.text || '');
+    const newText = prompt('Mesajı düzenle:', msg.text || '');
     if (newText === null) return;
     msg.text = newText.trim();
-    const db = getDatabase();
-    if (db && msg._key && this.dbRef) {
-      this.dbRef.child(msg._key).update({ text: msg.text }).catch(() => {});
-    }
     this.saveToLocal(null, true);
     this.msgList.innerHTML = '';
     this.messages.forEach(m => this.renderMessage(m));
     this.scrollToBottom();
+    const serverUrl = APP_CONFIG.serverUrl || 'http://localhost:3001';
+    fetch(serverUrl + `/api/messages/${msgId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: msg.text })
+    }).catch(() => {});
   },
 
   viewImage(img) {
     const overlay = document.createElement('div');
     overlay.className = 'msg-image-overlay';
-    overlay.innerHTML = `<div class="msg-image-viewer"><img src="${img.src}"><button class="msg-image-close" onclick="this.parentElement.parentElement.remove()">âœ•</button></div>`;
+    overlay.innerHTML = `<div class="msg-image-viewer"><img src="${img.src}"><button class="msg-image-close" onclick="this.parentElement.parentElement.remove()">✕</button></div>`;
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
     document.body.appendChild(overlay);
   },
@@ -378,7 +346,7 @@
         saved.push(msg);
         localStorage.setItem('chat_messages', JSON.stringify(saved));
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) {}
   },
 
   showBadge() { if (this.badge) this.badge.style.display = 'block'; },
@@ -408,4 +376,3 @@
     return div.innerHTML;
   }
 };
-

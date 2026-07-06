@@ -30,40 +30,8 @@ const LoginWidget = {
       return;
     }
 
-    // İlk açılış: Firebase'den hangi kullanıcılar alınmış kontrol et
-    const db = getDatabase();
-    if (db) {
-      db.ref('claimed').once('value', (snap) => {
-        const data = snap.val() || {};
-        if (!data.efe) {
-          // Efe alınmamış → seçim ekranı
-          this.userSelectScreen.style.display = 'flex';
-        } else if (!data.ela) {
-          // Ela alınmamış → otomatik Ela ata
-          this.autoAssign('ela');
-        } else {
-          // İkisi de alınmış → seçim ekranı (manuel seçtir)
-          this.userSelectScreen.style.display = 'flex';
-        }
-      }, () => {
-        // Firebase hatası → seçim ekranı
-        this.userSelectScreen.style.display = 'flex';
-      });
-    } else {
-      this.userSelectScreen.style.display = 'flex';
-    }
-  },
-
-  autoAssign(user) {
-    this.currentUser = user;
-    window.currentUser = user;
-    localStorage.setItem('app_user', user);
-    // Firebase'e kaydet
-    const db = getDatabase();
-    if (db) {
-      db.ref(`claimed/${user}`).set(navigator.userAgent || 'device').catch(() => {});
-    }
-    this.showLoginScreen();
+    // İlk açılış: kullanıcı seçim ekranı
+    this.userSelectScreen.style.display = 'flex';
   },
 
   setupListeners() {
@@ -71,10 +39,6 @@ const LoginWidget = {
       this.currentUser = user;
       window.currentUser = user;
       localStorage.setItem('app_user', user);
-      const db = getDatabase();
-      if (db) {
-        db.ref(`claimed/${user}`).set(navigator.userAgent || 'device').catch(() => {});
-      }
       this.userSelectScreen.style.display = 'none';
       this.showLoginScreen();
     };
@@ -158,7 +122,6 @@ const LoginWidget = {
         this.mainApp.style.display = 'flex';
 
         if (typeof KalbimWidget !== 'undefined') KalbimWidget.autoPlay();
-        if (typeof MusicWidget !== 'undefined') MusicWidget.autoPlay();
         requestNotificationPermission();
       }, 600);
     }, 3000);

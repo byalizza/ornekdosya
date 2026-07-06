@@ -87,28 +87,12 @@ const APP_CONFIG = {
   },
 
   // -------------------------------------------
-  // 8. FIREBASE YAPILANDIRMASI
+  // 8. SUNUCU BAĞLANTISI
   // -------------------------------------------
-  // Firebase Console'dan (https://console.firebase.google.com)
-  // yeni bir proje oluşturun.
-  // Proje Ayarları > Genel > Web uygulaması bölümünden
-  // aşağıdaki bilgileri alın.
-  firebase: {
-    apiKey: "AIzaSyDVuyxQPzhMd2k6jWQjEaGdFjYLHiz7dDA",
-    authDomain: "chat1-2de1c.firebaseapp.com",
-    databaseURL: "https://chat1-2de1c-default-rtdb.firebaseio.com",
-    projectId: "chat1-2de1c",
-    storageBucket: "chat1-2de1c.firebasestorage.app",
-    messagingSenderId: "553947147180",
-    appId: "1:553947147180:web:b4cda5d075378d0a28a809",
-    measurementId: "G-53RRX7LGEE"
-  },
-
-  // Firebase veritabanı yolları (değiştirmeyin)
-  firebasePaths: {
-    photos: 'locket/photos',
-    messages: 'chat/messages'
-  },
+  // Render'da yayına aldığınız backend'in URL'sini yazın.
+  // Örn: "https="//sizin-app.onrender.com"
+  // Lokalde test için: "http://localhost:3001"
+  serverUrl: 'http://localhost:3001',
 
   // -------------------------------------------
   // 9. VERİ DOSYALARI (değiştirmeyin)
@@ -181,7 +165,6 @@ const APP_CONFIG = {
 //    kendi isimlerinle değiştir.
 // 5. MP3 dosyalarını assets/sounds/ klasörüne yükle.
 // 6. Arka plan resimlerini assets/ klasörüne yükle.
-// 7. Firebase Console'da Realtime Database oluştur.
-//    Veri yapısı: data/kalbim.json ve data/memories.json
-//    formatında olmalı.
+// 7. Sunucuyu başlatmak için: cd server && npm install && npm start
+//    Render'a deploy etmek için server/ klasörünü kullan.
 // ============================================
